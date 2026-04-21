@@ -7,14 +7,15 @@
 #include <algorithm>
 #include <utility>
 
-typedef std::vector<std::vector<double> > IMAGE_T;
+// Avoid providing a typedef that might conflict with OJ's driver.
+// Use the concrete type directly in function signatures.
 
 namespace nr_heur {
 
 static double clamp01(double x) { return x < 0 ? 0 : (x > 1 ? 1 : x); }
 
 // Otsu thresholding for [0,1] double grayscale
-static double otsu_threshold(const IMAGE_T &img) {
+static double otsu_threshold(const std::vector<std::vector<double> > &img) {
     const int bins = 64;
     std::vector<int> hist(bins, 0);
     int h = (int)img.size();
@@ -54,7 +55,7 @@ static double otsu_threshold(const IMAGE_T &img) {
     return th;
 }
 
-static std::vector<std::vector<unsigned char> > binarize(const IMAGE_T &img) {
+static std::vector<std::vector<unsigned char> > binarize(const std::vector<std::vector<double> > &img) {
     int h = (int)img.size();
     int w = h ? (int)img[0].size() : 0;
     std::vector<std::vector<unsigned char> > bw(h, std::vector<unsigned char>(w, 0));
@@ -264,7 +265,7 @@ static int nearest_digit_by_seg(unsigned bits, const int *cands, int n) {
 
 } // namespace
 
-int judge(IMAGE_T &img) {
+int judge(std::vector<std::vector<double> > &img) {
     using namespace nr_heur;
     std::vector<std::vector<unsigned char> > bw = binarize(img);
     Box b;
