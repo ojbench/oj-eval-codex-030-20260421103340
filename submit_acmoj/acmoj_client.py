@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ACMOJ API Client Command Line Tool - Git Submission Version v2.2
+ACMOJ API Client Command Line Tool - Git or Code Submission v2.3
 
 Usage Examples:
 1. Submit Git URL:
@@ -17,6 +17,9 @@ Usage Examples:
    Note: Evaluation takes time, it's recommended to wait 10 seconds before querying status
    For example, if the returned result shows "status": "compiling" or "status": "pending", 
    it means the evaluation is still in progress or queued, please check again later
+
+2b. Submit raw code (src.hpp):
+   python3 acmoj_client.py --token ${ACMOJ_TOKEN} submit-file --problem-id ${ACMOJ_PROBLEM_ID} --file src.hpp --language c++
 
 3. Abort submission:
    python3 acmoj_client.py --token ${ACMOJ_TOKEN} abort --submission-id <your_submission_id>
@@ -38,7 +41,7 @@ class ACMOJClient:
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "ACMOJ-Python-Client/2.2"
+            "User-Agent": "ACMOJ-Python-Client/2.3"
         }
 
         self.submission_log_file = '/workspace/submission_ids.log'
@@ -95,6 +98,13 @@ class ACMOJClient:
 
         return result
 
+    def submit_code(self, problem_id: int, language: str, code_text: str) -> Optional[Dict]:
+        data = {"language": language, "code": code_text}
+        result = self._make_request("POST", f"/problem/{problem_id}/submit", data=data)
+        if result and 'id' in result:
+            self._save_submission_id(result['id'])
+        return result
+
     def get_submission_detail(self, submission_id: int) -> Optional[Dict]:
         return self._make_request("GET", f"/submission/{submission_id}")
 
@@ -114,6 +124,12 @@ def main():
     submit_parser.add_argument("--problem-id", type=int, required=True, help="Problem ID")
     submit_parser.add_argument("--git-url", type=str, required=True, help="Git repository URL")
 
+    # Raw code submission sub-command
+    submit_file = subparsers.add_parser("submit-file", help="Submit raw source code text")
+    submit_file.add_argument("--problem-id", type=int, required=True, help="Problem ID")
+    submit_file.add_argument("--file", type=str, required=True, help="Path to source file to submit")
+    submit_file.add_argument("--language", type=str, default="c++", help="Language tag (e.g., c++, c)")
+
     # Sub-command for checking submission status
     status_parser = subparsers.add_parser("status", help="Check submission status")
     status_parser.add_argument("--submission-id", type=int, required=True, help="Submission ID")
@@ -132,6 +148,14 @@ def main():
 
     if args.command == "submit":
         result = client.submit_git(args.problem_id, args.git_url)
+    elif args.command == "submit-file":
+        try:
+            with open(args.file, 'r', encoding='utf-8') as f:
+                code_text = f.read()
+        except Exception as e:
+            print(f"Error: failed to read file {args.file}: {e}")
+            return
+        result = client.submit_code(args.problem_id, args.language, code_text)
     elif args.command == "status":
         result = client.get_submission_detail(args.submission_id)
     elif args.command == "abort":
