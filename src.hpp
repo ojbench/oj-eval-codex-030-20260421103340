@@ -1,5 +1,5 @@
 // Heuristic handwritten digit classifier for 28x28 grayscale images.
-// Implements judge(IMAGE_T&) returning 0..9.
+// Implements judge(IMAGE_T&) returning 0..9. C++03-compatible implementation.
 #pragma once
 #include <vector>
 #include <queue>
@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <utility>
 
-typedef std::vector<std::vector<double>> IMAGE_T;
+typedef std::vector<std::vector<double> > IMAGE_T;
 
 namespace nr_heur {
 
@@ -48,18 +48,16 @@ static double otsu_threshold(const IMAGE_T &img) {
             thresholdBin = t;
         }
     }
-    // Convert bin to threshold in [0,1]
     double th = ((double)thresholdBin + 0.5) / bins;
-    // MNIST-like has dark background, bright strokes; ensure threshold not too high
     if (th < 0.1) th = 0.1;
     if (th > 0.9) th = 0.9;
     return th;
 }
 
-static std::vector<std::vector<unsigned char>> binarize(const IMAGE_T &img) {
+static std::vector<std::vector<unsigned char> > binarize(const IMAGE_T &img) {
     int h = (int)img.size();
     int w = h ? (int)img[0].size() : 0;
-    std::vector<std::vector<unsigned char>> bw(h, std::vector<unsigned char>(w, 0));
+    std::vector<std::vector<unsigned char> > bw(h, std::vector<unsigned char>(w, 0));
     if (h == 0 || w == 0) return bw;
     double th = otsu_threshold(img);
     for (int i = 0; i < h; ++i)
@@ -70,7 +68,7 @@ static std::vector<std::vector<unsigned char>> binarize(const IMAGE_T &img) {
 
 struct Box { int r0, c0, r1, c1; }; // inclusive bounds
 
-static bool find_bbox(const std::vector<std::vector<unsigned char>> &bw, Box &box) {
+static bool find_bbox(const std::vector<std::vector<unsigned char> > &bw, Box &box) {
     int h = (int)bw.size();
     int w = h ? (int)bw[0].size() : 0;
     int r0 = h, c0 = w, r1 = -1, c1 = -1;
@@ -83,62 +81,65 @@ static bool find_bbox(const std::vector<std::vector<unsigned char>> &bw, Box &bo
                 if (j > c1) c1 = j;
             }
     if (r1 < r0 || c1 < c0) return false;
-    box = {r0, c0, r1, c1};
+    box.r0 = r0; box.c0 = c0; box.r1 = r1; box.c1 = c1;
     return true;
 }
 
-static std::vector<std::vector<unsigned char>> crop_pad(const std::vector<std::vector<unsigned char>> &bw, const Box &b) {
-    int h = (int)bw.size();
-    int w = h ? (int)bw[0].size() : 0;
+static std::vector<std::vector<unsigned char> > crop_pad(const std::vector<std::vector<unsigned char> > &bw, const Box &b) {
     int H = b.r1 - b.r0 + 1;
     int W = b.c1 - b.c0 + 1;
-    // Add one-pixel black border around crop to stabilize hole detection
-    std::vector<std::vector<unsigned char>> out(H + 2, std::vector<unsigned char>(W + 2, 0));
+    std::vector<std::vector<unsigned char> > out(H + 2, std::vector<unsigned char>(W + 2, 0));
     for (int i = 0; i < H; ++i)
         for (int j = 0; j < W; ++j)
             out[i + 1][j + 1] = bw[b.r0 + i][b.c0 + j];
-    (void)h; (void)w; // silence unused warnings in some compilers
     return out;
 }
 
+// Helpers for flood fill bounds
+static inline bool inside_rc(int r, int c, int H, int W) { return r >= 0 && r < H && c >= 0 && c < W; }
+
 // Count holes: number of background components not touching border within cropped padded image
-static int count_holes(const std::vector<std::vector<unsigned char>> &crop) {
+static int count_holes(const std::vector<std::vector<unsigned char> > &crop) {
     int H = (int)crop.size();
     int W = H ? (int)crop[0].size() : 0;
     if (H == 0 || W == 0) return 0;
-    std::vector<std::vector<unsigned char>> vis(H, std::vector<unsigned char>(W, 0));
-    auto inside = [&](int r, int c){ return r >= 0 && r < H && c >= 0 && c < W; };
-    // Flood-fill border background to mark outside
-    std::queue<std::pair<int,int>> q;
-    auto push = [&](int r, int c){ if (inside(r,c) && !vis[r][c] && crop[r][c] == 0) { vis[r][c] = 1; q.emplace(r,c);} };
-    for (int i = 0; i < H; ++i) { push(i, 0); push(i, W-1); }
-    for (int j = 0; j < W; ++j) { push(0, j); push(H-1, j); }
+    std::vector<std::vector<unsigned char> > vis(H, std::vector<unsigned char>(W, 0));
+    std::queue<std::pair<int,int> > q;
+    for (int i = 0; i < H; ++i) {
+        if (!vis[i][0] && crop[i][0] == 0) { vis[i][0] = 1; q.push(std::make_pair(i,0)); }
+        if (!vis[i][W-1] && crop[i][W-1] == 0) { vis[i][W-1] = 1; q.push(std::make_pair(i,W-1)); }
+    }
+    for (int j = 0; j < W; ++j) {
+        if (!vis[0][j] && crop[0][j] == 0) { vis[0][j] = 1; q.push(std::make_pair(0,j)); }
+        if (!vis[H-1][j] && crop[H-1][j] == 0) { vis[H-1][j] = 1; q.push(std::make_pair(H-1,j)); }
+    }
     const int dr[4] = {-1,1,0,0};
     const int dc[4] = {0,0,-1,1};
     while (!q.empty()) {
-        auto [r,c] = q.front(); q.pop();
+        std::pair<int,int> p = q.front(); q.pop();
+        int r = p.first, c = p.second;
         for (int k = 0; k < 4; ++k) {
             int nr = r + dr[k], nc = c + dc[k];
-            if (inside(nr,nc) && !vis[nr][nc] && crop[nr][nc] == 0) {
-                vis[nr][nc] = 1; q.emplace(nr,nc);
+            if (inside_rc(nr,nc,H,W) && !vis[nr][nc] && crop[nr][nc] == 0) {
+                vis[nr][nc] = 1; q.push(std::make_pair(nr,nc));
             }
         }
     }
-    // Remaining unvisited background pixels belong to holes; count components among them
     int holes = 0;
-    std::vector<std::vector<unsigned char>> seen = vis; // copy
+    std::vector<std::vector<unsigned char> > seen = vis;
     for (int i = 1; i < H-1; ++i) {
         for (int j = 1; j < W-1; ++j) {
             if (crop[i][j] == 0 && !seen[i][j]) {
                 holes++;
-                std::queue<std::pair<int,int>> q2;
-                seen[i][j] = 1; q2.emplace(i,j);
+                std::queue<std::pair<int,int> > q2;
+                seen[i][j] = 1; q2.push(std::make_pair(i,j));
                 while (!q2.empty()) {
-                    auto [r,c] = q2.front(); q2.pop();
+                    std::pair<int,int> p2 = q2.front(); q2.pop();
+                    int r = p2.first, c = p2.second;
                     for (int k = 0; k < 4; ++k) {
                         int nr = r + dr[k], nc = c + dc[k];
                         if (nr>0 && nr<H-1 && nc>0 && nc<W-1 && crop[nr][nc]==0 && !seen[nr][nc]) {
-                            seen[nr][nc] = 1; q2.emplace(nr,nc);
+                            seen[nr][nc] = 1; q2.push(std::make_pair(nr,nc));
                         }
                     }
                 }
@@ -149,71 +150,80 @@ static int count_holes(const std::vector<std::vector<unsigned char>> &crop) {
 }
 
 // Estimate centroid of holes (averaged); returns (y,x) normalized in [0,1] within crop
-static std::pair<double,double> hole_centroid_norm(const std::vector<std::vector<unsigned char>> &crop) {
+static std::pair<double,double> hole_centroid_norm(const std::vector<std::vector<unsigned char> > &crop) {
     int H = (int)crop.size();
     int W = H ? (int)crop[0].size() : 0;
-    if (H == 0 || W == 0) return {0.5, 0.5};
-    std::vector<std::vector<unsigned char>> vis(H, std::vector<unsigned char>(W, 0));
-    auto inside = [&](int r, int c){ return r >= 0 && r < H && c >= 0 && c < W; };
-    std::queue<std::pair<int,int>> q;
-    auto push = [&](int r, int c){ if (inside(r,c) && !vis[r][c] && crop[r][c] == 0) { vis[r][c] = 1; q.emplace(r,c);} };
-    for (int i = 0; i < H; ++i) { push(i, 0); push(i, W-1); }
-    for (int j = 0; j < W; ++j) { push(0, j); push(H-1, j); }
+    if (H == 0 || W == 0) return std::make_pair(0.5, 0.5);
+    std::vector<std::vector<unsigned char> > vis(H, std::vector<unsigned char>(W, 0));
+    std::queue<std::pair<int,int> > q;
+    for (int i = 0; i < H; ++i) {
+        if (!vis[i][0] && crop[i][0] == 0) { vis[i][0] = 1; q.push(std::make_pair(i,0)); }
+        if (!vis[i][W-1] && crop[i][W-1] == 0) { vis[i][W-1] = 1; q.push(std::make_pair(i,W-1)); }
+    }
+    for (int j = 0; j < W; ++j) {
+        if (!vis[0][j] && crop[0][j] == 0) { vis[0][j] = 1; q.push(std::make_pair(0,j)); }
+        if (!vis[H-1][j] && crop[H-1][j] == 0) { vis[H-1][j] = 1; q.push(std::make_pair(H-1,j)); }
+    }
     const int dr[4] = {-1,1,0,0};
     const int dc[4] = {0,0,-1,1};
     while (!q.empty()) {
-        auto [r,c] = q.front(); q.pop();
+        std::pair<int,int> p = q.front(); q.pop();
+        int r = p.first, c = p.second;
         for (int k = 0; k < 4; ++k) {
             int nr = r + dr[k], nc = c + dc[k];
-            if (inside(nr,nc) && !vis[nr][nc] && crop[nr][nc] == 0) { vis[nr][nc] = 1; q.emplace(nr,nc); }
+            if (inside_rc(nr,nc,H,W) && !vis[nr][nc] && crop[nr][nc] == 0) { vis[nr][nc] = 1; q.push(std::make_pair(nr,nc)); }
         }
     }
     long long cnt = 0; long long sumr = 0, sumc = 0;
     for (int i = 1; i < H-1; ++i)
         for (int j = 1; j < W-1; ++j)
             if (crop[i][j] == 0 && !vis[i][j]) { cnt++; sumr += i; sumc += j; }
-    if (cnt == 0) return {0.5, 0.5};
+    if (cnt == 0) return std::make_pair(0.5, 0.5);
     double cy = (double)sumr / cnt / (double)(H-1);
     double cx = (double)sumc / cnt / (double)(W-1);
-    return {cy, cx};
+    return std::make_pair(cy, cx);
+}
+
+static std::pair<double,int> sum_ratio_in_bounds(const std::vector<std::vector<unsigned char> > &crop,
+                                                 int r0, int c0, int r1, int c1,
+                                                 double ry0, double ry1, double rx0, double rx1) {
+    int Ih = r1 - r0 + 1;
+    int Iw = c1 - c0 + 1;
+    int y0 = r0 + (int)std::floor(ry0 * Ih);
+    int y1 = r0 + (int)std::ceil (ry1 * Ih) - 1;
+    int x0 = c0 + (int)std::floor(rx0 * Iw);
+    int x1 = c0 + (int)std::ceil (rx1 * Iw) - 1;
+    if (y0 < r0) y0 = r0; if (y1 > r1) y1 = r1;
+    if (x0 < c0) x0 = c0; if (x1 > c1) x1 = c1;
+    long long s = 0; long long n = 0;
+    for (int i = y0; i <= y1; ++i)
+        for (int j = x0; j <= x1; ++j) { s += crop[i][j] != 0; n++; }
+    double ratio = (n>0)?(double)s/(double)n:0.0;
+    return std::make_pair(ratio, (int)n);
 }
 
 // Compute 7-seg bitmask from cropped image (with border)
-static unsigned seg7_bits(const std::vector<std::vector<unsigned char>> &crop) {
+static unsigned seg7_bits(const std::vector<std::vector<unsigned char> > &crop) {
     int H = (int)crop.size();
     int W = H ? (int)crop[0].size() : 0;
     if (H < 5 || W < 5) return 0;
     // Focus on inner region excluding the padded border for stability
     int r0 = 1, c0 = 1, r1 = H - 2, c1 = W - 2;
-    int Ih = r1 - r0 + 1;
-    int Iw = c1 - c0 + 1;
-    auto sum_region = [&](double ry0, double ry1, double rx0, double rx1) {
-        int y0 = r0 + (int)std::floor(ry0 * Ih);
-        int y1 = r0 + (int)std::ceil (ry1 * Ih) - 1;
-        int x0 = c0 + (int)std::floor(rx0 * Iw);
-        int x1 = c0 + (int)std::ceil (rx1 * Iw) - 1;
-        if (y0 < r0) y0 = r0; if (y1 > r1) y1 = r1;
-        if (x0 < c0) x0 = c0; if (x1 > c1) x1 = c1;
-        long long s = 0; long long n = 0;
-        for (int i = y0; i <= y1; ++i)
-            for (int j = x0; j <= x1; ++j) { s += crop[i][j] != 0; n++; }
-        return std::pair<double,int>((n>0)?(double)s/(double)n:0.0, (int)n);
-    };
-    // Define segment regions relative to [0,1]x[0,1]
+    std::pair<double,int> pr;
     // A: top horizontal band
-    auto A = sum_region(0.05, 0.20, 0.20, 0.80).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.05, 0.20, 0.20, 0.80); double A = pr.first;
     // B: upper-right vertical band
-    auto B = sum_region(0.05, 0.50, 0.65, 0.95).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.05, 0.50, 0.65, 0.95); double B = pr.first;
     // C: lower-right vertical band
-    auto C = sum_region(0.50, 0.95, 0.65, 0.95).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.50, 0.95, 0.65, 0.95); double C = pr.first;
     // D: bottom horizontal band
-    auto D = sum_region(0.80, 0.95, 0.20, 0.80).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.80, 0.95, 0.20, 0.80); double D = pr.first;
     // E: lower-left vertical band
-    auto E = sum_region(0.50, 0.95, 0.05, 0.35).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.50, 0.95, 0.05, 0.35); double E = pr.first;
     // F: upper-left vertical band
-    auto F = sum_region(0.05, 0.50, 0.05, 0.35).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.05, 0.50, 0.05, 0.35); double F = pr.first;
     // G: middle horizontal band
-    auto G = sum_region(0.40, 0.60, 0.20, 0.80).first;
+    pr = sum_ratio_in_bounds(crop, r0, c0, r1, c1, 0.40, 0.60, 0.20, 0.80); double G = pr.first;
 
     double thr = 0.33; // fraction threshold to consider segment lit
     unsigned bits = 0;
@@ -227,8 +237,7 @@ static unsigned seg7_bits(const std::vector<std::vector<unsigned char>> &crop) {
     return bits;
 }
 
-static int nearest_digit_by_seg(unsigned bits, const std::vector<int> &candidates) {
-    // Canonical 7-seg bitmasks with bit A..G mapped to bits 6..0 respectively
+static int nearest_digit_by_seg(unsigned bits, const int *cands, int n) {
     static const unsigned DIG[10] = {
         /*0*/ (1u<<6)|(1u<<5)|(1u<<4)|(1u<<3)|(1u<<2)|(1u<<1),
         /*1*/ (1u<<5)|(1u<<4),
@@ -241,9 +250,10 @@ static int nearest_digit_by_seg(unsigned bits, const std::vector<int> &candidate
         /*8*/ (1u<<6)|(1u<<5)|(1u<<4)|(1u<<3)|(1u<<2)|(1u<<1)|(1u<<0),
         /*9*/ (1u<<6)|(1u<<5)|(1u<<4)|(1u<<3)|(1u<<1)|(1u<<0)
     };
-    int best = candidates.empty() ? 0 : candidates[0];
+    int best = (n>0) ? cands[0] : 0;
     int bestd = 1000;
-    for (int d : candidates) {
+    for (int i = 0; i < n; ++i) {
+        int d = cands[i];
         unsigned ref = DIG[d];
         unsigned x = bits ^ ref;
         int hd = __builtin_popcount((unsigned)x);
@@ -256,14 +266,11 @@ static int nearest_digit_by_seg(unsigned bits, const std::vector<int> &candidate
 
 int judge(IMAGE_T &img) {
     using namespace nr_heur;
-    // Binarize
-    auto bw = binarize(img);
-    // Find bounding box
+    std::vector<std::vector<unsigned char> > bw = binarize(img);
     Box b;
     if (!find_bbox(bw, b)) return 0;
-    auto crop = crop_pad(bw, b);
+    std::vector<std::vector<unsigned char> > crop = crop_pad(bw, b);
 
-    // Basic measurements
     int H = (int)crop.size();
     int W = H ? (int)crop[0].size() : 0;
     int innerH = H - 2, innerW = W - 2;
@@ -277,7 +284,6 @@ int judge(IMAGE_T &img) {
     int holes = count_holes(crop);
     unsigned segbits = seg7_bits(crop);
 
-    // If extremely thin vertical -> likely 1
     if (aspect > 1.8 && fill < 0.30) {
         return 1;
     }
@@ -286,50 +292,39 @@ int judge(IMAGE_T &img) {
         return 8;
     }
     if (holes == 1) {
-        // Distinguish 0/6/9 via hole vertical position and 7-seg
-        auto hc = hole_centroid_norm(crop);
-        double y = hc.first; // 0 top, 1 bottom
-        // Initial guess by y
+        std::pair<double,double> hc = hole_centroid_norm(crop);
+        double y = hc.first;
         int guess;
         if (y < 0.45) guess = 9;
         else if (y > 0.55) guess = 6;
         else guess = 0;
-        // Refine with 7-seg among {0,6,9}
-        int seg_guess = nearest_digit_by_seg(segbits, std::vector<int>{0,6,9});
-        // Blend: if segment guess disagrees strongly, prefer it; else keep y-based
+        int cand1[3] = {0,6,9};
+        int seg_guess = nearest_digit_by_seg(segbits, cand1, 3);
         if (seg_guess != guess) {
-            // If aspect indicates roundness -> 0
-            if (std::abs(aspect - 1.0) < 0.25 && fill < 0.55) guess = 0;
+            if (std::fabs(aspect - 1.0) < 0.25 && fill < 0.55) guess = 0;
             else guess = seg_guess;
         }
         return guess;
     }
 
-    // No holes: candidates {1,2,3,4,5,7}
-    // Use 7-seg nearest first
-    int seg_guess = nearest_digit_by_seg(segbits, std::vector<int>{1,2,3,4,5,7});
-    // Simple rules to adjust
+    int cand2[6] = {1,2,3,4,5,7};
+    int seg_guess = nearest_digit_by_seg(segbits, cand2, 6);
     if (seg_guess == 1) return 1;
     if (seg_guess == 7) {
-        // Ensure strong top bar and low fill
         if (fill < 0.45) return 7;
     }
     if (seg_guess == 4) {
-        // 4 often has higher aspect and mid bar
         if (aspect > 1.1) return 4;
     }
-    // Distinguish 2/3/5 by mass vertical skew
-    // Compute center-of-mass of foreground
     double sy = 0.0, sx = 0.0; long long cnt = 0;
     for (int i = 1; i < H-1; ++i)
         for (int j = 1; j < W-1; ++j)
             if (crop[i][j]) { sy += i; sx += j; cnt++; }
-    double cy = (cnt ? sy / cnt : H/2.0) / (double)(H-1); // 0 top
-    // 2 tends to have lower mass (more ink bottom), 3 tends to center, 5 has more top-left
+    double cy = (cnt ? sy / cnt : H/2.0) / (double)(H-1);
     if (seg_guess == 2 || seg_guess == 3 || seg_guess == 5) {
-        if (cy > 0.58) return 2; // mass shifted down
-        if (cy < 0.48) return 5; // mass shifted up
-        return seg_guess; // fallback
+        if (cy > 0.58) return 2;
+        if (cy < 0.48) return 5;
+        return seg_guess;
     }
     return seg_guess;
 }
