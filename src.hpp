@@ -5,6 +5,7 @@
 #include <queue>
 #include <cmath>
 #include <algorithm>
+#include <utility>
 
 typedef std::vector<std::vector<double>> IMAGE_T;
 
@@ -332,4 +333,3 @@ int judge(IMAGE_T &img) {
     }
     return seg_guess;
 }
-
